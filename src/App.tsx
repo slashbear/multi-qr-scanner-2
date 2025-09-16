@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { prepareZXingModule, readBarcodes, type ReadResult } from 'zxing-wasm/reader'
+import GuideFrame, { type GuideState, calculateGuideSize, isQRInGuide } from './GuideFrame'
 import './App.css'
 
 interface UniqueQRResult {
@@ -16,11 +17,21 @@ function App() {
   const [error, setError] = useState<string | null>(null)
   const [isInitialized, setIsInitialized] = useState(false)
   const [permissionStatus, setPermissionStatus] = useState<'prompt' | 'granted' | 'denied' | null>(null)
+  const [guideState, setGuideState] = useState<GuideState>('waiting')
+  const [lastScanTime, setLastScanTime] = useState<number>(0)
+  const [scanInterval, setScanInterval] = useState<number>(200) // 動的スキャン間隔
+  const [focusGuideOnly, setFocusGuideOnly] = useState<boolean>(false) // ガイド領域のみスキャン
+  const [recentScans, setRecentScans] = useState<Map<string, number>>(new Map()) // 最近のスキャン履歴（クールダウン用）
 
   const videoRef = useRef<HTMLVideoElement>(null)
   const streamRef = useRef<MediaStream | null>(null)
   const animationFrameRef = useRef<number | null>(null)
   const canvasRef = useRef<HTMLCanvasElement>(document.createElement('canvas'))
+  const videoWrapperRef = useRef<HTMLDivElement>(null)
+  const performanceRef = useRef<{ lastFrameTime: number; frameCount: number }>({
+    lastFrameTime: 0,
+    frameCount: 0
+  })
 
   // WebAssembly対応チェック
   useEffect(() => {
@@ -137,20 +148,51 @@ function App() {
     return null
   }, [isIOS, isSafari])
 
-  // QRコードを追加（重複排除）
+  // QRコードを追加（重複排除とクールダウン）
   const addQRCode = useCallback((text: string) => {
     const hash = btoa(encodeURIComponent(text)).replace(/=/g, '') // 簡易ハッシュ
+    const now = Date.now()
+
+    // 同一QRコードのクールダウンチェック（3秒）
+    const lastScanTime = recentScans.get(hash)
+    if (lastScanTime && now - lastScanTime < 3000) {
+      return false // クールダウン中はスキップ
+    }
+
+    // 最近のスキャン履歴を更新
+    setRecentScans(prev => {
+      const newMap = new Map(prev)
+
+      // 古いエントリを削除（10秒以上前）
+      for (const [key, time] of newMap.entries()) {
+        if (now - time > 10000) {
+          newMap.delete(key)
+        }
+      }
+
+      // 新しいスキャンを記録
+      newMap.set(hash, now)
+
+      // メモリ制限（最大20件）
+      if (newMap.size > 20) {
+        const oldestKey = Array.from(newMap.entries())
+          .sort((a, b) => a[1] - b[1])[0][0]
+        newMap.delete(oldestKey)
+      }
+
+      return newMap
+    })
 
     setUniqueResults(prev => {
       const newMap = new Map(prev)
-      const now = new Date()
+      const nowDate = new Date()
 
       if (newMap.has(hash)) {
-        // 既存の場合は更新
+        // 既存の場合は更新（カウントの増加を抑制）
         const existing = newMap.get(hash)!
         newMap.set(hash, {
           ...existing,
-          lastSeen: now,
+          lastSeen: nowDate,
           count: existing.count + 1
         })
       } else {
@@ -158,15 +200,25 @@ function App() {
         newMap.set(hash, {
           id: hash,
           text,
-          firstSeen: now,
-          lastSeen: now,
+          firstSeen: nowDate,
+          lastSeen: nowDate,
           count: 1
         })
       }
 
+      // メモリ制限（最大50件）
+      if (newMap.size > 50) {
+        const entries = Array.from(newMap.entries())
+          .sort((a, b) => b[1].lastSeen.getTime() - a[1].lastSeen.getTime())
+        const limitedMap = new Map(entries.slice(0, 50))
+        return limitedMap
+      }
+
       return newMap
     })
-  }, [])
+
+    return true // 追加成功
+  }, [recentScans])
 
   // スキャン処理
   const scanQRCodes = useCallback(async () => {
@@ -183,9 +235,10 @@ function App() {
       return
     }
 
-    // Canvas設定
-    canvas.width = video.videoWidth
-    canvas.height = video.videoHeight
+    // Canvas設定（解像度を下げてパフォーマンス向上）
+    const scale = 0.6 // 60%にスケールダウン
+    canvas.width = Math.floor(video.videoWidth * scale)
+    canvas.height = Math.floor(video.videoHeight * scale)
 
     if (canvas.width === 0 || canvas.height === 0) {
       console.warn('[QR-Scanner] Canvas size is 0')
@@ -195,44 +248,173 @@ function App() {
       return
     }
 
-    ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
+    // パフォーマンス測定
+    const startTime = performance.now()
+
+    // ガイド領域のみスキャンする場合の最適化
+    if (focusGuideOnly && videoWrapperRef.current) {
+      const guideRegion = calculateGuideSize(
+        videoWrapperRef.current.clientWidth,
+        videoWrapperRef.current.clientHeight
+      )
+
+      // ビデオ座標系に変換
+      const videoScale = {
+        x: video.videoWidth / videoWrapperRef.current.clientWidth,
+        y: video.videoHeight / videoWrapperRef.current.clientHeight
+      }
+
+      const cropX = Math.floor(guideRegion.left * videoScale.x * 0.6)
+      const cropY = Math.floor(guideRegion.top * videoScale.y * 0.6)
+      const cropWidth = Math.floor(guideRegion.width * videoScale.x * 0.6)
+      const cropHeight = Math.floor(guideRegion.height * videoScale.y * 0.6)
+
+      // ガイド領域のみを描画
+      ctx.drawImage(
+        video,
+        guideRegion.left * videoScale.x,
+        guideRegion.top * videoScale.y,
+        guideRegion.width * videoScale.x,
+        guideRegion.height * videoScale.y,
+        0, 0, canvas.width, canvas.height
+      )
+    } else {
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
+    }
 
     try {
       const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height)
 
-      // 複数QRコード読み取り
+      // 複数QRコード読み取り（パフォーマンス最適化）
       const scanResults = await readBarcodes(imageData, {
         formats: ['QRCode'],
-        maxNumberOfSymbols: 4,
-        tryHarder: true
+        maxNumberOfSymbols: 2,  // 4→2に削減で処理速度向上
+        tryHarder: false        // true→falseで処理速度優先
       })
 
       if (scanResults.length > 0) {
-        // 各QRコードをリストに追加
+        // ガイド領域の計算
+        const guideRegion = videoWrapperRef.current
+          ? calculateGuideSize(
+              videoWrapperRef.current.clientWidth,
+              videoWrapperRef.current.clientHeight
+            )
+          : null
+
+        // QRコードを領域内外で分類
+        const inGuideResults: ReadResult[] = []
+        const outGuideResults: ReadResult[] = []
+
         scanResults.forEach((result: ReadResult) => {
-          addQRCode(result.text)
+          if (guideRegion && result.position) {
+            // Calculate QR bounds in video coordinates
+            const videoScale = {
+              x: video.videoWidth / videoWrapperRef.current!.clientWidth,
+              y: video.videoHeight / videoWrapperRef.current!.clientHeight
+            }
+
+            // Get QR center position
+            const points = result.position
+            const centerX = (points.topLeft.x + points.topRight.x + points.bottomLeft.x + points.bottomRight.x) / 4
+            const centerY = (points.topLeft.y + points.topRight.y + points.bottomLeft.y + points.bottomRight.y) / 4
+
+            // Convert to display coordinates
+            const displayBounds = {
+              x: centerX / videoScale.x,
+              y: centerY / videoScale.y,
+              width: Math.abs(points.topRight.x - points.topLeft.x) / videoScale.x,
+              height: Math.abs(points.bottomLeft.y - points.topLeft.y) / videoScale.y
+            }
+
+            if (isQRInGuide(displayBounds, guideRegion)) {
+              inGuideResults.push(result)
+            } else {
+              outGuideResults.push(result)
+            }
+          } else {
+            outGuideResults.push(result)
+          }
         })
+
+        // 領域内を優先して処理
+        const now = Date.now()
+        let hasNewDetection = false
+
+        if (inGuideResults.length > 0) {
+          // 新規検出があるかチェック
+          for (const result of inGuideResults) {
+            if (addQRCode(result.text)) {
+              hasNewDetection = true
+            }
+          }
+
+          if (hasNewDetection) {
+            setGuideState('success')
+            setTimeout(() => setGuideState('scanning'), 300)
+            setLastScanTime(now)
+
+            // 成功時はスキャン間隔を長くする
+            setScanInterval(500)
+            setTimeout(() => setScanInterval(200), 2000) // 2秒後に戻す
+          }
+        } else if (outGuideResults.length > 0 && now - lastScanTime > 1000) {
+          // 領域外は1秒のクールダウン後に処理
+          for (const result of outGuideResults) {
+            addQRCode(result.text)
+          }
+        }
 
         console.log('[QR-Scanner]', {
           timestamp: new Date().toISOString(),
           event: 'scan_result',
-          count: scanResults.length,
+          inGuide: inGuideResults.length,
+          outGuide: outGuideResults.length,
           data: scanResults.map(r => r.text)
         })
+      } else {
+        // QRコードが見つからない場合
+        if (guideState === 'success') {
+          setGuideState('scanning')
+        }
       }
     } catch (err) {
       console.error('[QR-Scanner] Scan error:', err)
+      setGuideState('error')
+      setTimeout(() => setGuideState('scanning'), 1000)
+    }
+
+    // パフォーマンス計測
+    const endTime = performance.now()
+    const processingTime = endTime - startTime
+
+    // FPS計算
+    performanceRef.current.frameCount++
+    if (endTime - performanceRef.current.lastFrameTime > 1000) {
+      console.log('[QR-Scanner Performance]', {
+        fps: performanceRef.current.frameCount,
+        avgProcessingTime: `${processingTime.toFixed(2)}ms`,
+        scanInterval: `${scanInterval}ms`
+      })
+      performanceRef.current.frameCount = 0
+      performanceRef.current.lastFrameTime = endTime
+    }
+
+    // 処理時間に応じて動的にスキャン間隔を調整
+    if (processingTime > 100) {
+      setScanInterval(prev => Math.min(prev + 50, 500))
+    } else if (processingTime < 50) {
+      setScanInterval(prev => Math.max(prev - 25, 100))
     }
 
     if (isScanning) {
-      // スキャン間隔を調整
+      // 動的スキャン間隔を使用
       setTimeout(() => {
         if (isScanning) {
           animationFrameRef.current = requestAnimationFrame(scanQRCodes)
         }
-      }, 100)
+      }, scanInterval)
     }
-  }, [isInitialized, isScanning, addQRCode])
+  }, [isInitialized, isScanning, addQRCode, guideState, lastScanTime, scanInterval, focusGuideOnly, recentScans])
 
   // スキャン開始
   const startScanning = useCallback(async () => {
@@ -259,6 +441,7 @@ function App() {
       }
 
       setIsScanning(true)
+      setGuideState('scanning')
       console.log('[QR-Scanner] Starting scan loop')
 
       // 少し遅延してからスキャン開始
@@ -274,6 +457,7 @@ function App() {
   // スキャン停止（狩猟モード）
   const stopScanning = useCallback(() => {
     setIsScanning(false)
+    setGuideState('waiting')
 
     if (animationFrameRef.current) {
       cancelAnimationFrame(animationFrameRef.current)
@@ -298,12 +482,32 @@ function App() {
   // リストリセット
   const resetList = useCallback(() => {
     setUniqueResults(new Map())
+    setRecentScans(new Map())
     console.log('[QR-Scanner] List reset')
   }, [])
 
-  // クリーンアップ
+  // クリーンアップとメモリ管理
   useEffect(() => {
+    // 定期的なメモリクリーンアップ（30秒ごと）
+    const cleanupInterval = setInterval(() => {
+      const now = Date.now()
+
+      // 古いスキャン履歴を削除
+      setRecentScans(prev => {
+        const newMap = new Map()
+        for (const [key, time] of prev.entries()) {
+          if (now - time < 10000) { // 10秒以内のものだけ保持
+            newMap.set(key, time)
+          }
+        }
+        return newMap
+      })
+
+      console.log('[QR-Scanner] Memory cleanup performed')
+    }, 30000)
+
     return () => {
+      clearInterval(cleanupInterval)
       if (animationFrameRef.current) {
         cancelAnimationFrame(animationFrameRef.current)
       }
@@ -356,7 +560,7 @@ function App() {
       )}
 
       <div className="scanner-container">
-        <div className="video-wrapper">
+        <div className="video-wrapper" ref={videoWrapperRef}>
           <video
             ref={videoRef}
             autoPlay
@@ -374,10 +578,13 @@ function App() {
           )}
 
           {isScanning && (
-            <div className="scanning-indicator">
-              <span className="scanning-dot"></span>
-              <span>スキャン中...</span>
-            </div>
+            <>
+              <GuideFrame state={guideState} containerRef={videoWrapperRef} />
+              <div className="scanning-indicator">
+                <span className="scanning-dot"></span>
+                <span>スキャン中...</span>
+              </div>
+            </>
           )}
         </div>
 
@@ -405,6 +612,14 @@ function App() {
             disabled={uniqueResults.size === 0}
           >
             リセット
+          </button>
+
+          <button
+            onClick={() => setFocusGuideOnly(!focusGuideOnly)}
+            className={`scan-button ${focusGuideOnly ? 'guide-only' : 'full-scan'}`}
+            title="ガイド領域のみスキャン/全画面スキャン切り替え"
+          >
+            {focusGuideOnly ? 'ガイドのみ' : '全画面'}
           </button>
         </div>
 

@@ -119,6 +119,7 @@
   align-items: center;
   gap: 0.5rem;
   animation: slideDown 0.3s ease;
+  z-index: 20;
 }
 
 .scanning-dot {
@@ -193,6 +194,26 @@
 
 .scan-button.reset:hover:not(:disabled) {
   background: #da190b;
+  transform: scale(1.05);
+}
+
+.scan-button.guide-only {
+  background: #9c27b0;
+  color: white;
+}
+
+.scan-button.guide-only:hover {
+  background: #7b1fa2;
+  transform: scale(1.05);
+}
+
+.scan-button.full-scan {
+  background: #2196f3;
+  color: white;
+}
+
+.scan-button.full-scan:hover {
+  background: #1976d2;
   transform: scale(1.05);
 }
 

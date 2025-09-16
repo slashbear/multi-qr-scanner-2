@@ -1,0 +1,157 @@
+/* Guide Frame Base Styles */
+.guide-frame {
+  position: absolute;
+  border: 2px dashed rgba(255, 255, 255, 0.5);
+  pointer-events: none;
+  transition: all 0.3s ease;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Corner Markers */
+.corner-marker {
+  position: absolute;
+  width: 20px;
+  height: 20px;
+  border: 3px solid white;
+}
+
+.corner-tl {
+  top: -2px;
+  left: -2px;
+  border-right: none;
+  border-bottom: none;
+}
+
+.corner-tr {
+  top: -2px;
+  right: -2px;
+  border-left: none;
+  border-bottom: none;
+}
+
+.corner-bl {
+  bottom: -2px;
+  left: -2px;
+  border-right: none;
+  border-top: none;
+}
+
+.corner-br {
+  bottom: -2px;
+  right: -2px;
+  border-left: none;
+  border-top: none;
+}
+
+/* Center Message */
+.guide-message {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  background: rgba(0, 0, 0, 0.7);
+  color: white;
+  padding: 8px 16px;
+  border-radius: 4px;
+  font-size: 14px;
+  white-space: nowrap;
+  text-align: center;
+  user-select: none;
+}
+
+/* State-based Styles */
+.guide-frame--waiting {
+  border-color: rgba(255, 255, 255, 0.5);
+  animation: blink 1s infinite;
+}
+
+.guide-frame--waiting .corner-marker {
+  border-color: white;
+}
+
+.guide-frame--scanning {
+  border-color: rgba(255, 235, 59, 0.8);
+  animation: pulse 1.5s infinite;
+}
+
+.guide-frame--scanning .corner-marker {
+  border-color: #FFEB3B;
+}
+
+.guide-frame--success {
+  border-color: rgba(76, 175, 80, 0.8);
+  animation: flash 0.3s;
+}
+
+.guide-frame--success .corner-marker {
+  border-color: #4CAF50;
+}
+
+.guide-frame--error {
+  border-color: rgba(244, 67, 54, 0.8);
+  animation: shake 0.5s;
+}
+
+.guide-frame--error .corner-marker {
+  border-color: #f44336;
+}
+
+/* Animations */
+@keyframes blink {
+  0%, 100% {
+    opacity: 0.5;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+@keyframes pulse {
+  0%, 100% {
+    opacity: 0.5;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.02);
+  }
+}
+
+@keyframes flash {
+  0%, 100% {
+    background: transparent;
+  }
+  50% {
+    background: rgba(76, 175, 80, 0.2);
+  }
+}
+
+@keyframes shake {
+  0%, 100% {
+    transform: translateX(0);
+  }
+  25% {
+    transform: translateX(-5px);
+  }
+  75% {
+    transform: translateX(5px);
+  }
+}
+
+/* Responsive adjustments */
+@media (max-width: 480px) {
+  .guide-message {
+    font-size: 12px;
+    padding: 6px 12px;
+  }
+}
+
+@media (orientation: landscape) and (max-height: 500px) {
+  .guide-message {
+    font-size: 12px;
+    padding: 4px 10px;
+  }
+}
