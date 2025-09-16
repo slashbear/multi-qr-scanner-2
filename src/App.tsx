@@ -3,6 +3,22 @@ import { prepareZXingModule, readBarcodes, type ReadResult } from 'zxing-wasm/re
 import GuideFrame, { type GuideState, calculateGuideSize, isQRInGuide } from './GuideFrame'
 import './App.css'
 
+// 定数定義
+const SCAN_COOLDOWN_DURATION = 3000 // 同一QRコードのクールダウン時間（ミリ秒）
+const SCAN_HISTORY_TTL = 10000 // スキャン履歴の保持時間（ミリ秒）
+const MAX_RECENT_SCANS = 20 // 最近のスキャン履歴の最大件数
+const MAX_UNIQUE_RESULTS = 50 // ユニーク結果の最大件数
+const MEMORY_CLEANUP_INTERVAL = 30000 // メモリクリーンアップ間隔（ミリ秒）
+const SCAN_INTERVAL_MIN = 100 // 最小スキャン間隔（ミリ秒）
+const SCAN_INTERVAL_MAX = 500 // 最大スキャン間隔（ミリ秒）
+const SCAN_INTERVAL_DEFAULT = 200 // デフォルトスキャン間隔（ミリ秒）
+const CANVAS_SCALE = 0.6 // Canvas描画スケール
+const GUIDE_TOLERANCE = 0.1 // ガイド領域の許容誤差
+const READBARCODES_TIMEOUT = 1000 // readBarcodesのタイムアウト（ミリ秒）
+
+// 開発環境チェック
+const isDevelopment = process.env.NODE_ENV === 'development'
+
 interface UniqueQRResult {
   id: string
   text: string
@@ -19,7 +35,7 @@ function App() {
   const [permissionStatus, setPermissionStatus] = useState<'prompt' | 'granted' | 'denied' | null>(null)
   const [guideState, setGuideState] = useState<GuideState>('waiting')
   const [lastScanTime, setLastScanTime] = useState<number>(0)
-  const [scanInterval, setScanInterval] = useState<number>(200) // 動的スキャン間隔
+  const [scanInterval, setScanInterval] = useState<number>(SCAN_INTERVAL_DEFAULT) // 動的スキャン間隔
   const [focusGuideOnly, setFocusGuideOnly] = useState<boolean>(false) // ガイド領域のみスキャン
   const [recentScans, setRecentScans] = useState<Map<string, number>>(new Map()) // 最近のスキャン履歴（クールダウン用）
 
@@ -49,11 +65,13 @@ function App() {
   useEffect(() => {
     const initializeZXing = async () => {
       try {
-        console.log('[QR-Scanner]', {
-          timestamp: new Date().toISOString(),
-          event: 'init_start',
-          userAgent: navigator.userAgent
-        })
+        if (isDevelopment) {
+          console.log('[QR-Scanner]', {
+            timestamp: new Date().toISOString(),
+            event: 'init_start',
+            userAgent: navigator.userAgent
+          })
+        }
 
         await prepareZXingModule({
           overrides: {
@@ -72,12 +90,16 @@ function App() {
         })
 
         setIsInitialized(true)
-        console.log('[QR-Scanner]', {
-          timestamp: new Date().toISOString(),
-          event: 'init_success'
-        })
+        if (isDevelopment) {
+          console.log('[QR-Scanner]', {
+            timestamp: new Date().toISOString(),
+            event: 'init_success'
+          })
+        }
       } catch (err) {
-        console.error('[QR-Scanner] Initialization error:', err)
+        if (isDevelopment) {
+          console.error('[QR-Scanner] Initialization error:', err)
+        }
         setError('QRスキャナーの初期化に失敗しました')
       }
     }
@@ -94,7 +116,9 @@ function App() {
         return result.state
       }
     } catch (err) {
-      console.log('[QR-Scanner] Permission API not available:', err)
+      if (isDevelopment) {
+        console.log('[QR-Scanner] Permission API not available:', err)
+      }
     }
     return 'prompt'
   }, [])
@@ -111,18 +135,22 @@ function App() {
 
     for (let i = 0; i <= maxRetries; i++) {
       try {
-        console.log('[QR-Scanner]', {
-          timestamp: new Date().toISOString(),
-          event: 'camera_request',
-          attempt: i + 1,
-          isIOS,
-          isSafari
-        })
+        if (isDevelopment) {
+          console.log('[QR-Scanner]', {
+            timestamp: new Date().toISOString(),
+            event: 'camera_request',
+            attempt: i + 1,
+            isIOS,
+            isSafari
+          })
+        }
 
         const stream = await navigator.mediaDevices.getUserMedia(constraints)
         return stream
       } catch (error: unknown) {
-        console.error('[QR-Scanner] Camera error:', error)
+        if (isDevelopment) {
+          console.error('[QR-Scanner] Camera error:', error)
+        }
         const err = error as { name?: string; message?: string }
 
         // iOS SafariのAbortError対策
@@ -153,9 +181,9 @@ function App() {
     const hash = btoa(encodeURIComponent(text)).replace(/=/g, '') // 簡易ハッシュ
     const now = Date.now()
 
-    // 同一QRコードのクールダウンチェック（3秒）
+    // 同一QRコードのクールダウンチェック
     const lastScanTime = recentScans.get(hash)
-    if (lastScanTime && now - lastScanTime < 3000) {
+    if (lastScanTime && now - lastScanTime < SCAN_COOLDOWN_DURATION) {
       return false // クールダウン中はスキップ
     }
 
@@ -163,9 +191,9 @@ function App() {
     setRecentScans(prev => {
       const newMap = new Map(prev)
 
-      // 古いエントリを削除（10秒以上前）
+      // 古いエントリを削除
       for (const [key, time] of newMap.entries()) {
-        if (now - time > 10000) {
+        if (now - time > SCAN_HISTORY_TTL) {
           newMap.delete(key)
         }
       }
@@ -173,8 +201,8 @@ function App() {
       // 新しいスキャンを記録
       newMap.set(hash, now)
 
-      // メモリ制限（最大20件）
-      if (newMap.size > 20) {
+      // メモリ制限
+      if (newMap.size > MAX_RECENT_SCANS) {
         const oldestKey = Array.from(newMap.entries())
           .sort((a, b) => a[1] - b[1])[0][0]
         newMap.delete(oldestKey)
@@ -206,11 +234,11 @@ function App() {
         })
       }
 
-      // メモリ制限（最大50件）
-      if (newMap.size > 50) {
+      // メモリ制限
+      if (newMap.size > MAX_UNIQUE_RESULTS) {
         const entries = Array.from(newMap.entries())
           .sort((a, b) => b[1].lastSeen.getTime() - a[1].lastSeen.getTime())
-        const limitedMap = new Map(entries.slice(0, 50))
+        const limitedMap = new Map(entries.slice(0, MAX_UNIQUE_RESULTS))
         return limitedMap
       }
 
@@ -236,20 +264,23 @@ function App() {
     }
 
     // Canvas設定（解像度を下げてパフォーマンス向上）
-    const scale = 0.6 // 60%にスケールダウン
-    canvas.width = Math.floor(video.videoWidth * scale)
-    canvas.height = Math.floor(video.videoHeight * scale)
+    canvas.width = Math.floor(video.videoWidth * CANVAS_SCALE)
+    canvas.height = Math.floor(video.videoHeight * CANVAS_SCALE)
 
     if (canvas.width === 0 || canvas.height === 0) {
-      console.warn('[QR-Scanner] Canvas size is 0')
+      if (isDevelopment) {
+        console.warn('[QR-Scanner] Canvas size is 0')
+      }
       if (isScanning) {
         animationFrameRef.current = requestAnimationFrame(scanQRCodes)
       }
       return
     }
 
-    // パフォーマンス測定
-    const startTime = performance.now()
+    // パフォーマンス測定（Safari対応）
+    const startTime = typeof performance !== 'undefined' && performance.now
+      ? performance.now()
+      : Date.now()
 
     // ガイド領域のみスキャンする場合の最適化
     if (focusGuideOnly && videoWrapperRef.current) {
@@ -264,10 +295,10 @@ function App() {
         y: video.videoHeight / videoWrapperRef.current.clientHeight
       }
 
-      const cropX = Math.floor(guideRegion.left * videoScale.x * 0.6)
-      const cropY = Math.floor(guideRegion.top * videoScale.y * 0.6)
-      const cropWidth = Math.floor(guideRegion.width * videoScale.x * 0.6)
-      const cropHeight = Math.floor(guideRegion.height * videoScale.y * 0.6)
+      const cropX = Math.floor(guideRegion.left * videoScale.x * CANVAS_SCALE)
+      const cropY = Math.floor(guideRegion.top * videoScale.y * CANVAS_SCALE)
+      const cropWidth = Math.floor(guideRegion.width * videoScale.x * CANVAS_SCALE)
+      const cropHeight = Math.floor(guideRegion.height * videoScale.y * CANVAS_SCALE)
 
       // ガイド領域のみを描画
       ctx.drawImage(
@@ -279,18 +310,29 @@ function App() {
         0, 0, canvas.width, canvas.height
       )
     } else {
+      // videoWrapperRefがない場合のフォールバックとログ
+      if (focusGuideOnly && !videoWrapperRef.current && isDevelopment) {
+        console.warn('[QR-Scanner] Guide-only mode requires videoWrapperRef')
+      }
       ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
     }
 
     try {
       const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height)
 
-      // 複数QRコード読み取り（パフォーマンス最適化）
-      const scanResults = await readBarcodes(imageData, {
+      // 複数QRコード読み取り（タイムアウト付き）
+      const scanPromise = readBarcodes(imageData, {
         formats: ['QRCode'],
         maxNumberOfSymbols: 2,  // 4→2に削減で処理速度向上
         tryHarder: false        // true→falseで処理速度優先
       })
+
+      // タイムアウト処理
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        setTimeout(() => reject(new Error('readBarcodes timeout')), READBARCODES_TIMEOUT)
+      })
+
+      const scanResults = await Promise.race([scanPromise, timeoutPromise]) as ReadResult[]
 
       if (scanResults.length > 0) {
         // ガイド領域の計算
@@ -354,8 +396,8 @@ function App() {
             setLastScanTime(now)
 
             // 成功時はスキャン間隔を長くする
-            setScanInterval(500)
-            setTimeout(() => setScanInterval(200), 2000) // 2秒後に戻す
+            setScanInterval(SCAN_INTERVAL_MAX)
+            setTimeout(() => setScanInterval(SCAN_INTERVAL_DEFAULT), 2000) // 2秒後に戻す
           }
         } else if (outGuideResults.length > 0 && now - lastScanTime > 1000) {
           // 領域外は1秒のクールダウン後に処理
@@ -364,13 +406,15 @@ function App() {
           }
         }
 
-        console.log('[QR-Scanner]', {
-          timestamp: new Date().toISOString(),
-          event: 'scan_result',
-          inGuide: inGuideResults.length,
-          outGuide: outGuideResults.length,
-          data: scanResults.map(r => r.text)
-        })
+        if (isDevelopment) {
+          console.log('[QR-Scanner]', {
+            timestamp: new Date().toISOString(),
+            event: 'scan_result',
+            inGuide: inGuideResults.length,
+            outGuide: outGuideResults.length,
+            data: scanResults.map(r => r.text)
+          })
+        }
       } else {
         // QRコードが見つからない場合
         if (guideState === 'success') {
@@ -378,32 +422,46 @@ function App() {
         }
       }
     } catch (err) {
-      console.error('[QR-Scanner] Scan error:', err)
-      setGuideState('error')
-      setTimeout(() => setGuideState('scanning'), 1000)
+      if (isDevelopment) {
+        console.error('[QR-Scanner] Scan error:', err)
+      }
+      // タイムアウトエラーの場合は特別な処理
+      if (err instanceof Error && err.message === 'readBarcodes timeout') {
+        if (isDevelopment) {
+          console.warn('[QR-Scanner] Scan timeout, retrying...')
+        }
+        // タイムアウトの場合はエラー状態にしない
+      } else {
+        setGuideState('error')
+        setTimeout(() => setGuideState('scanning'), 1000)
+      }
     }
 
-    // パフォーマンス計測
-    const endTime = performance.now()
+    // パフォーマンス計測（Safari対応）
+    const endTime = typeof performance !== 'undefined' && performance.now
+      ? performance.now()
+      : Date.now()
     const processingTime = endTime - startTime
 
     // FPS計算
     performanceRef.current.frameCount++
     if (endTime - performanceRef.current.lastFrameTime > 1000) {
-      console.log('[QR-Scanner Performance]', {
-        fps: performanceRef.current.frameCount,
-        avgProcessingTime: `${processingTime.toFixed(2)}ms`,
-        scanInterval: `${scanInterval}ms`
-      })
+      if (isDevelopment) {
+        console.log('[QR-Scanner Performance]', {
+          fps: performanceRef.current.frameCount,
+          avgProcessingTime: `${processingTime.toFixed(2)}ms`,
+          scanInterval: `${scanInterval}ms`
+        })
+      }
       performanceRef.current.frameCount = 0
       performanceRef.current.lastFrameTime = endTime
     }
 
     // 処理時間に応じて動的にスキャン間隔を調整
     if (processingTime > 100) {
-      setScanInterval(prev => Math.min(prev + 50, 500))
+      setScanInterval(prev => Math.min(prev + 50, SCAN_INTERVAL_MAX))
     } else if (processingTime < 50) {
-      setScanInterval(prev => Math.max(prev - 25, 100))
+      setScanInterval(prev => Math.max(prev - 25, SCAN_INTERVAL_MIN))
     }
 
     if (isScanning) {
@@ -442,14 +500,18 @@ function App() {
 
       setIsScanning(true)
       setGuideState('scanning')
-      console.log('[QR-Scanner] Starting scan loop')
+      if (isDevelopment) {
+        console.log('[QR-Scanner] Starting scan loop')
+      }
 
       // 少し遅延してからスキャン開始
       setTimeout(() => {
         scanQRCodes()
       }, 500)
     } catch (err) {
-      console.error('[QR-Scanner] Start error:', err)
+      if (isDevelopment) {
+        console.error('[QR-Scanner] Start error:', err)
+      }
       setIsScanning(false)
     }
   }, [checkCameraPermission, requestCameraWithRetry, scanQRCodes])
@@ -473,22 +535,26 @@ function App() {
       videoRef.current.srcObject = null
     }
 
-    console.log('[QR-Scanner]', {
-      timestamp: new Date().toISOString(),
-      event: 'scan_stop (hunting mode)'
-    })
+    if (isDevelopment) {
+      console.log('[QR-Scanner]', {
+        timestamp: new Date().toISOString(),
+        event: 'scan_stop (hunting mode)'
+      })
+    }
   }, [])
 
   // リストリセット
   const resetList = useCallback(() => {
     setUniqueResults(new Map())
     setRecentScans(new Map())
-    console.log('[QR-Scanner] List reset')
+    if (isDevelopment) {
+      console.log('[QR-Scanner] List reset')
+    }
   }, [])
 
   // クリーンアップとメモリ管理
   useEffect(() => {
-    // 定期的なメモリクリーンアップ（30秒ごと）
+    // 定期的なメモリクリーンアップ
     const cleanupInterval = setInterval(() => {
       const now = Date.now()
 
@@ -496,15 +562,17 @@ function App() {
       setRecentScans(prev => {
         const newMap = new Map()
         for (const [key, time] of prev.entries()) {
-          if (now - time < 10000) { // 10秒以内のものだけ保持
+          if (now - time < SCAN_HISTORY_TTL) { // TTL以内のものだけ保持
             newMap.set(key, time)
           }
         }
         return newMap
       })
 
-      console.log('[QR-Scanner] Memory cleanup performed')
-    }, 30000)
+      if (isDevelopment) {
+        console.log('[QR-Scanner] Memory cleanup performed')
+      }
+    }, MEMORY_CLEANUP_INTERVAL)
 
     return () => {
       clearInterval(cleanupInterval)
