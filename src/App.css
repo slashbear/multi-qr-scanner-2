@@ -1,0 +1,379 @@
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+#root {
+  width: 100%;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.app {
+  width: 100%;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
+    sans-serif;
+}
+
+.header {
+  padding: 1.5rem 1rem;
+  text-align: center;
+  background: rgba(0, 0, 0, 0.2);
+}
+
+.header h1 {
+  font-size: 1.8rem;
+  margin-bottom: 0.5rem;
+  font-weight: 700;
+}
+
+.subtitle {
+  font-size: 0.9rem;
+  opacity: 0.9;
+}
+
+.error-message {
+  background: #ff4444;
+  color: white;
+  padding: 1rem;
+  margin: 0.5rem;
+  border-radius: 8px;
+  text-align: center;
+  animation: slideDown 0.3s ease;
+}
+
+.permission-denied {
+  background: rgba(255, 255, 255, 0.1);
+  padding: 2rem;
+  margin: 1rem;
+  border-radius: 8px;
+  text-align: center;
+}
+
+.permission-denied p {
+  margin: 0.5rem 0;
+}
+
+.scanner-container {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  padding: 1rem;
+  max-width: 800px;
+  margin: 0 auto;
+  width: 100%;
+}
+
+.video-wrapper {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 4/3;
+  background: rgba(0, 0, 0, 0.3);
+  border-radius: 12px;
+  overflow: hidden;
+  margin-bottom: 1rem;
+}
+
+.video-preview {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.placeholder {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  text-align: center;
+}
+
+.placeholder-icon {
+  font-size: 4rem;
+  margin-bottom: 1rem;
+  opacity: 0.8;
+}
+
+.placeholder p {
+  font-size: 1.1rem;
+  opacity: 0.9;
+}
+
+.scanning-indicator {
+  position: absolute;
+  top: 1rem;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(0, 0, 0, 0.6);
+  padding: 0.5rem 1.5rem;
+  border-radius: 20px;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  animation: slideDown 0.3s ease;
+}
+
+.scanning-dot {
+  width: 10px;
+  height: 10px;
+  background: #4caf50;
+  border-radius: 50%;
+  animation: pulse 1s infinite;
+}
+
+.overlay-results {
+  position: absolute;
+  top: 1rem;
+  right: 1rem;
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.result-badge {
+  background: rgba(76, 175, 80, 0.9);
+  padding: 0.5rem 1rem;
+  border-radius: 20px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  animation: fadeIn 0.3s ease;
+}
+
+.controls {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 1rem;
+}
+
+.scan-button {
+  padding: 1rem 2.5rem;
+  font-size: 1.1rem;
+  font-weight: 600;
+  border: none;
+  border-radius: 50px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  margin: 0 0.5rem;
+}
+
+.scan-button.start {
+  background: #4caf50;
+  color: white;
+}
+
+.scan-button.start:hover:not(:disabled) {
+  background: #45a049;
+  transform: scale(1.05);
+}
+
+.scan-button.hunting {
+  background: #ff9800;
+  color: white;
+}
+
+.scan-button.hunting:hover {
+  background: #f57c00;
+  transform: scale(1.05);
+}
+
+.scan-button.reset {
+  background: #f44336;
+  color: white;
+}
+
+.scan-button.reset:hover:not(:disabled) {
+  background: #da190b;
+  transform: scale(1.05);
+}
+
+.scan-button:disabled {
+  background: rgba(255, 255, 255, 0.3);
+  cursor: not-allowed;
+  opacity: 0.7;
+}
+
+.results {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  padding: 1.5rem;
+  margin-top: 1rem;
+  animation: slideUp 0.3s ease;
+}
+
+.results h2 {
+  font-size: 1.3rem;
+  margin-bottom: 1rem;
+  text-align: center;
+}
+
+.results-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.8rem;
+}
+
+.result-item {
+  background: rgba(255, 255, 255, 0.15);
+  padding: 1rem;
+  border-radius: 8px;
+  border-left: 4px solid #4caf50;
+  animation: fadeIn 0.3s ease;
+}
+
+.result-header {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 0.5rem;
+  font-size: 0.85rem;
+  opacity: 0.9;
+}
+
+.result-index {
+  font-weight: 600;
+  color: #4caf50;
+}
+
+.result-count {
+  background: #ff9800;
+  color: white;
+  padding: 2px 8px;
+  border-radius: 12px;
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.result-time {
+  opacity: 0.8;
+}
+
+.result-content {
+  font-size: 1rem;
+  word-break: break-all;
+  line-height: 1.5;
+}
+
+.footer {
+  padding: 1rem;
+  text-align: center;
+  background: rgba(0, 0, 0, 0.2);
+}
+
+.status {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  font-size: 0.9rem;
+  opacity: 0.9;
+}
+
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.status-dot.ready {
+  background: #4caf50;
+  animation: pulse 2s infinite;
+}
+
+.status-dot.loading {
+  background: #ff9800;
+  animation: pulse 1s infinite;
+}
+
+@keyframes slideDown {
+  from {
+    transform: translateY(-20px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+@keyframes slideUp {
+  from {
+    transform: translateY(20px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(76, 175, 80, 0.7);
+  }
+  70% {
+    box-shadow: 0 0 0 10px rgba(76, 175, 80, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(76, 175, 80, 0);
+  }
+}
+
+/* タブレット以上の画面 */
+@media (min-width: 768px) {
+  .header h1 {
+    font-size: 2.5rem;
+  }
+
+  .subtitle {
+    font-size: 1.1rem;
+  }
+
+  .video-wrapper {
+    aspect-ratio: 16/9;
+  }
+
+  .scan-button {
+    padding: 1.2rem 4rem;
+    font-size: 1.2rem;
+  }
+
+  .results h2 {
+    font-size: 1.5rem;
+  }
+}
+
+/* デスクトップ画面 */
+@media (min-width: 1024px) {
+  .scanner-container {
+    max-width: 1000px;
+  }
+
+  .placeholder-icon {
+    font-size: 5rem;
+  }
+
+  .results-list {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 1rem;
+  }
+}
