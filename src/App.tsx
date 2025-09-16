@@ -13,11 +13,10 @@ const SCAN_INTERVAL_MIN = 100 // 最小スキャン間隔（ミリ秒）
 const SCAN_INTERVAL_MAX = 500 // 最大スキャン間隔（ミリ秒）
 const SCAN_INTERVAL_DEFAULT = 200 // デフォルトスキャン間隔（ミリ秒）
 const CANVAS_SCALE = 0.6 // Canvas描画スケール
-const GUIDE_TOLERANCE = 0.1 // ガイド領域の許容誤差
 const READBARCODES_TIMEOUT = 1000 // readBarcodesのタイムアウト（ミリ秒）
 
 // 開発環境チェック
-const isDevelopment = process.env.NODE_ENV === 'development'
+const isDevelopment = import.meta.env.DEV
 
 interface UniqueQRResult {
   id: string
@@ -294,11 +293,6 @@ function App() {
         x: video.videoWidth / videoWrapperRef.current.clientWidth,
         y: video.videoHeight / videoWrapperRef.current.clientHeight
       }
-
-      const cropX = Math.floor(guideRegion.left * videoScale.x * CANVAS_SCALE)
-      const cropY = Math.floor(guideRegion.top * videoScale.y * CANVAS_SCALE)
-      const cropWidth = Math.floor(guideRegion.width * videoScale.x * CANVAS_SCALE)
-      const cropHeight = Math.floor(guideRegion.height * videoScale.y * CANVAS_SCALE)
 
       // ガイド領域のみを描画
       ctx.drawImage(
