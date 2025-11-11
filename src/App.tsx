@@ -9,11 +9,11 @@ const SCAN_HISTORY_TTL = 10000 // スキャン履歴の保持時間（ミリ秒�
 const MAX_RECENT_SCANS = 20 // 最近のスキャン履歴の最大件数
 const MAX_UNIQUE_RESULTS = 50 // ユニーク結果の最大件数
 const MEMORY_CLEANUP_INTERVAL = 30000 // メモリクリーンアップ間隔（ミリ秒）
-const SCAN_INTERVAL_MIN = 100 // 最小スキャン間隔（ミリ秒）
+const SCAN_INTERVAL_MIN = 200 // 最小スキャン間隔（ミリ秒・iPhone最適化: 100→200）
 const SCAN_INTERVAL_MAX = 500 // 最大スキャン間隔（ミリ秒）
-const SCAN_INTERVAL_DEFAULT = 200 // デフォルトスキャン間隔（ミリ秒）
-const CANVAS_SCALE = 0.6 // Canvas描画スケール
-const READBARCODES_TIMEOUT = 1000 // readBarcodesのタイムアウト（ミリ秒）
+const SCAN_INTERVAL_DEFAULT = 300 // デフォルトスキャン間隔（ミリ秒・iPhone最適化: 200→300）
+const CANVAS_SCALE = 0.5 // Canvas描画スケール（iPhone最適化: 0.4→0.5でエラー回避）
+const READBARCODES_TIMEOUT = 3000 // readBarcodesのタイムアウト（ミリ秒・iPhone最適化: 1000→3000）
 
 // 開発環境チェック
 const isDevelopment = import.meta.env.DEV
@@ -72,22 +72,22 @@ function App() {
           })
         }
 
+        console.log('[INIT] ZXing初期化開始...')
         await prepareZXingModule({
           overrides: {
             locateFile: (path: string, prefix: string) => {
               if (path.endsWith('.wasm')) {
-                const cdns = [
-                  'https://unpkg.com/zxing-wasm@2/dist/reader/',
-                  'https://fastly.jsdelivr.net/npm/zxing-wasm@2/dist/reader/'
-                ]
-                return cdns[0] + path
+                // ローカルのpublicディレクトリから読み込み
+                const localPath = '/' + path
+                console.log('[INIT] WASM読み込み（ローカル）:', localPath)
+                return localPath
               }
               return prefix + path
             }
-          },
-          fireImmediately: true
+          }
         })
 
+        console.log('[INIT] ZXing初期化完了!')
         setIsInitialized(true)
         if (isDevelopment) {
           console.log('[QR-Scanner]', {
@@ -96,9 +96,8 @@ function App() {
           })
         }
       } catch (err) {
-        if (isDevelopment) {
-          console.error('[QR-Scanner] Initialization error:', err)
-        }
+        console.error('[QR-Scanner] Initialization error:', err)
+        const errorMsg = err instanceof Error ? err.message : String(err)
         setError('QRスキャナーの初期化に失敗しました')
       }
     }
@@ -249,7 +248,9 @@ function App() {
 
   // スキャン処理
   const scanQRCodes = useCallback(async () => {
-    if (!videoRef.current || !isInitialized || !isScanning) return
+    if (!videoRef.current || !isInitialized || !isScanning) {
+      return
+    }
 
     const video = videoRef.current
     const canvas = canvasRef.current
@@ -267,14 +268,13 @@ function App() {
     canvas.height = Math.floor(video.videoHeight * CANVAS_SCALE)
 
     if (canvas.width === 0 || canvas.height === 0) {
-      if (isDevelopment) {
-        console.warn('[QR-Scanner] Canvas size is 0')
-      }
+      console.warn('[QR-Scanner] Canvas size is 0')
       if (isScanning) {
         animationFrameRef.current = requestAnimationFrame(scanQRCodes)
       }
       return
     }
+
 
     // パフォーマンス測定（Safari対応）
     const startTime = typeof performance !== 'undefined' && performance.now
@@ -312,12 +312,20 @@ function App() {
     }
 
     try {
+      // ImageDataのサイズ検証
+      if (canvas.width <= 0 || canvas.height <= 0) {
+        if (isScanning) {
+          animationFrameRef.current = requestAnimationFrame(scanQRCodes)
+        }
+        return
+      }
+
       const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height)
 
       // 複数QRコード読み取り（タイムアウト付き）
       const scanPromise = readBarcodes(imageData, {
         formats: ['QRCode'],
-        maxNumberOfSymbols: 2,  // 4→2に削減で処理速度向上
+        maxNumberOfSymbols: 1,  // iPhone最適化: 2→1に削減
         tryHarder: false        // true→falseで処理速度優先
       })
 
@@ -378,13 +386,18 @@ function App() {
 
         if (inGuideResults.length > 0) {
           // 新規検出があるかチェック
+          console.log('[DEBUG] ガイド内QR検出:', inGuideResults.length, '個')
           for (const result of inGuideResults) {
-            if (addQRCode(result.text)) {
+            console.log('[DEBUG] QRコード内容:', result.text.substring(0, 50))
+            const added = addQRCode(result.text)
+            console.log('[DEBUG] addQRCode結果:', added ? '追加成功' : 'クールダウン中')
+            if (added) {
               hasNewDetection = true
             }
           }
 
           if (hasNewDetection) {
+            console.log('[DEBUG] 新規検出あり - success状態へ')
             setGuideState('success')
             setTimeout(() => setGuideState('scanning'), 300)
             setLastScanTime(now)
@@ -392,23 +405,25 @@ function App() {
             // 成功時はスキャン間隔を長くする
             setScanInterval(SCAN_INTERVAL_MAX)
             setTimeout(() => setScanInterval(SCAN_INTERVAL_DEFAULT), 2000) // 2秒後に戻す
+          } else {
+            console.log('[DEBUG] 新規検出なし（全てクールダウン中）')
           }
         } else if (outGuideResults.length > 0 && now - lastScanTime > 1000) {
           // 領域外は1秒のクールダウン後に処理
+          console.log('[DEBUG] ガイド外QR検出:', outGuideResults.length, '個')
           for (const result of outGuideResults) {
             addQRCode(result.text)
           }
+        } else if (outGuideResults.length > 0) {
         }
 
-        if (isDevelopment) {
-          console.log('[QR-Scanner]', {
-            timestamp: new Date().toISOString(),
-            event: 'scan_result',
-            inGuide: inGuideResults.length,
-            outGuide: outGuideResults.length,
-            data: scanResults.map(r => r.text)
-          })
-        }
+        console.log('[QR-Scanner]', {
+          timestamp: new Date().toISOString(),
+          event: 'scan_result',
+          inGuide: inGuideResults.length,
+          outGuide: outGuideResults.length,
+          data: scanResults.map(r => r.text.substring(0, 30))
+        })
       } else {
         // QRコードが見つからない場合
         if (guideState === 'success') {
@@ -416,16 +431,15 @@ function App() {
         }
       }
     } catch (err) {
-      if (isDevelopment) {
-        console.error('[QR-Scanner] Scan error:', err)
-      }
+      console.error('[QR-Scanner] Scan error:', err)
+      const errorMsg = err instanceof Error ? err.message : String(err)
+
       // タイムアウトエラーの場合は特別な処理
       if (err instanceof Error && err.message === 'readBarcodes timeout') {
-        if (isDevelopment) {
-          console.warn('[QR-Scanner] Scan timeout, retrying...')
-        }
+        console.warn('[QR-Scanner] readBarcodes timeout - モジュール初期化を確認')
         // タイムアウトの場合はエラー状態にしない
       } else {
+        console.error('[QR-Scanner] 予期しないエラー:', errorMsg)
         setGuideState('error')
         setTimeout(() => setGuideState('scanning'), 1000)
       }
