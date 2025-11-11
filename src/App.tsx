@@ -97,7 +97,6 @@ function App() {
         }
       } catch (err) {
         console.error('[QR-Scanner] Initialization error:', err)
-        const errorMsg = err instanceof Error ? err.message : String(err)
         setError('QRスキャナーの初期化に失敗しました')
       }
     }

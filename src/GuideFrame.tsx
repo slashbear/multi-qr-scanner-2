@@ -5,7 +5,7 @@ export type GuideState = 'waiting' | 'scanning' | 'success' | 'error'
 
 interface GuideFrameProps {
   state: GuideState
-  containerRef: React.RefObject<HTMLDivElement>
+  containerRef: React.RefObject<HTMLDivElement | null>
 }
 
 interface GuideFrameConfig {
