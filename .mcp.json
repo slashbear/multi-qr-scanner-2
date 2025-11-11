@@ -16,6 +16,14 @@
         "@playwright/mcp@latest"
       ],
       "env": {}
+    },
+    "codex": {
+      "type": "stdio",
+      "command": "codex",
+      "args": [
+        "mcp-server"
+      ],
+      "env": {}
     }
   }
 }
